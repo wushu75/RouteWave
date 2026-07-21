@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RouteWave — London journeys, from wherever you already are</title>
+    <meta
+      name="description"
+      content="A free, open-source Chrome extension for London travel. Fastest, least-walking and step-free routes, live arrivals and weather-aware advice. No accounts, no tracking."
+    />
+    <link rel="icon" href="icon128.png" />
+
+    <meta property="og:title" content="RouteWave — London TfL journey help" />
+    <meta
+      property="og:description"
+      content="Turn any London address on a web page into a clear route. Free, open source, no tracking."
+    />
+    <meta property="og:image" content="icon128.png" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+
+    <style>
+      /* ------------------------------------------------------------------
+         RouteWave site.
+
+         The page is built as a single tube line: sections are stations,
+         install steps are stops along the way, and the last marker is a
+         terminus. Interchange rings mark the sections you can jump between.
+
+         No web fonts, no analytics, no third-party requests of any kind —
+         the same promise the extension makes, kept by the site too.
+         ------------------------------------------------------------------ */
+
+      :root {
+        --blue: #0019a8;
+        --navy: #0b1a33;
+        --navy-deep: #071227;
+        --red: #dc241f;
+        --red-dark: #b81a16;
+        --paper: #ffffff;
+        --wash: #f1f3f7;
+        --rule: #dde2ec;
+        --ink: #0b1a33;
+        --ink-soft: #4a5a75;
+        --ink-faint: #5f6e88;
+        --focus: #2f7fff;
+
+        /* Line colours, used only as station markers */
+        --victoria: #0098d4;
+        --elizabeth: #6950a1;
+        --district: #00782a;
+        --central: #e32017;
+
+        --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          'Helvetica Neue', Arial, sans-serif;
+
+        --rail: 13px; /* centre of the route line */
+        --gap: 46px; /* text offset from the rail */
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 400 17px/1.65 var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 3px;
+        border-radius: 6px;
+      }
+
+      .skip {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        background: var(--navy);
+        color: #fff;
+        padding: 10px 16px;
+        z-index: 40;
+      }
+      .skip:focus {
+        left: 0;
+      }
+
+      /* ---------------------------------------------------------- topbar */
+
+      .topbar {
+        background: var(--navy);
+        color: #fff;
+        border-bottom: 4px solid var(--red);
+        position: sticky;
+        top: 0;
+        z-index: 30;
+      }
+
+      .topbar__in {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 13px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .wordmark {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #fff;
+        text-decoration: none;
+        font: 700 17px/1 var(--font);
+        letter-spacing: 0.01em;
+      }
+
+      .wordmark svg {
+        display: block;
+      }
+
+      .topbar__link {
+        color: #b9c6dc;
+        text-decoration: none;
+        font: 600 14px/1 var(--font);
+        padding: 12px 15px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+      }
+
+      .topbar__link:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      /* ------------------------------------------------------------ hero */
+
+      .hero {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 66px 24px 54px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--wash);
+        color: var(--ink-soft);
+        border-radius: 999px;
+        padding: 6px 14px 6px 10px;
+        font: 600 13px/1 var(--font);
+        margin-bottom: 26px;
+      }
+
+      .tag::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--red);
+      }
+
+      .hero h1 {
+        margin: 0;
+        font: 800 clamp(34px, 6.2vw, 52px) / 1.05 var(--font);
+        letter-spacing: -0.032em;
+        max-width: 15ch;
+      }
+
+      .hero h1 b {
+        color: var(--blue);
+        font-weight: 800;
+      }
+
+      .hero p {
+        max-width: 52ch;
+        margin: 22px 0 32px;
+        color: var(--ink-soft);
+        font-size: 18px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 14px 22px;
+        border-radius: 10px;
+        font: 700 15px/1 var(--font);
+        text-decoration: none;
+        border: 1.5px solid var(--rule);
+        background: var(--paper);
+        color: var(--ink);
+        cursor: pointer;
+      }
+
+      .btn:hover {
+        background: var(--wash);
+        border-color: #c7cfdd;
+      }
+
+      .btn--go {
+        background: var(--red);
+        border-color: var(--red);
+        color: #fff;
+      }
+
+      .btn--go:hover {
+        background: var(--red-dark);
+        border-color: var(--red-dark);
+      }
+
+      /* ------------------------------------------------------- the line */
+
+      .route {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px 30px;
+        position: relative;
+      }
+
+      /* The line is drawn segment by segment, each one running from its own
+         marker down to the next. The terminus has no segment after it, so the
+         line stops there — the way a line does on the map. */
+      .stop {
+        position: relative;
+        padding: 0 0 52px var(--gap);
+      }
+
+      .stop::after {
+        content: '';
+        position: absolute;
+        left: calc(var(--rail) - 3px);
+        top: 18px;
+        bottom: -18px;
+        width: 6px;
+        border-radius: 3px;
+        background: var(--blue);
+        z-index: 0;
+        transform-origin: top center;
+        animation: draw 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .stop:nth-of-type(2)::after {
+        animation-delay: 200ms;
+      }
+      .stop:nth-of-type(3)::after {
+        animation-delay: 400ms;
+      }
+
+      .stop--end::after {
+        display: none;
+      }
+
+      @keyframes draw {
+        from {
+          transform: scaleY(0);
+        }
+        to {
+          transform: scaleY(1);
+        }
+      }
+
+      /* Interchange marker: a white ring, always above the line. */
+      .stop::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 5px;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--paper);
+        border: 6px solid var(--marker, var(--blue));
+        box-sizing: border-box;
+        z-index: 1;
+      }
+
+      .stop--end::before {
+        border-color: var(--red);
+        background: var(--red);
+      }
+
+      .stop h2 {
+        margin: 0 0 6px;
+        font: 800 26px/1.2 var(--font);
+        letter-spacing: -0.02em;
+      }
+
+      .eyebrow {
+        display: block;
+        font: 700 11px/1 var(--font);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+        margin-bottom: 9px;
+      }
+
+      .stop > p {
+        margin: 0 0 18px;
+        color: var(--ink-soft);
+        max-width: 54ch;
+      }
+
+      /* -------------------------------------------------- feature stops */
+
+      .list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .list li {
+        position: relative;
+        padding: 13px 0 13px 26px;
+        border-top: 1px solid var(--rule);
+        max-width: 54ch;
+      }
+
+      .list li:last-child {
+        border-bottom: 1px solid var(--rule);
+      }
+
+      /* A plain stop tick, the map's grammar for an ordinary station. */
+      .list li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 22px;
+        width: 13px;
+        height: 3px;
+        border-radius: 2px;
+        background: var(--dot, var(--ink-faint));
+      }
+
+      .list strong {
+        font-weight: 700;
+      }
+
+      .list span {
+        color: var(--ink-soft);
+      }
+
+      /* ------------------------------------------------------- install */
+
+      .steps {
+        list-style: none;
+        counter-reset: s;
+        margin: 0;
+        padding: 0;
+      }
+
+      .steps li {
+        counter-increment: s;
+        position: relative;
+        padding: 0 0 20px 38px;
+        max-width: 54ch;
+        color: var(--ink-soft);
+      }
+
+      .steps li::before {
+        content: counter(s);
+        position: absolute;
+        left: 0;
+        top: 1px;
+        width: 25px;
+        height: 25px;
+        border-radius: 50%;
+        background: var(--navy);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font: 700 13px/1 var(--font);
+      }
+
+      .steps b {
+        color: var(--ink);
+      }
+
+      kbd {
+        font: 600 13px/1 var(--font);
+        background: var(--wash);
+        border: 1px solid var(--rule);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        padding: 3px 6px;
+      }
+
+      .code {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--navy-deep);
+        border-radius: 10px;
+        padding: 13px 14px 13px 18px;
+        margin: 0 0 24px;
+        max-width: 54ch;
+      }
+
+      .code code {
+        flex: 1;
+        color: #d7e2f5;
+        font: 500 13.5px/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+
+      .copy {
+        flex: none;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+        border-radius: 7px;
+        padding: 13px 13px;
+        font: 600 12.5px/1 var(--font);
+        cursor: pointer;
+      }
+
+      .copy:hover {
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      /* -------------------------------------------------------- privacy */
+
+      .promise {
+        background: var(--wash);
+        border-radius: 14px;
+        padding: 22px 24px;
+        max-width: 54ch;
+      }
+
+      .promise dl {
+        margin: 0;
+        display: grid;
+        gap: 15px;
+      }
+
+      .promise dt {
+        font-weight: 700;
+        font-size: 15px;
+      }
+
+      .promise dd {
+        margin: 3px 0 0;
+        color: var(--ink-soft);
+        font-size: 15px;
+      }
+
+      /* --------------------------------------------------------- footer */
+
+      .foot {
+        background: var(--navy);
+        color: #b9c6dc;
+        margin-top: 20px;
+      }
+
+      .foot__in {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 34px 24px 44px;
+        font-size: 14px;
+      }
+
+      .foot a {
+        color: #fff;
+      }
+
+      .foot__links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        padding-bottom: 18px;
+        margin-bottom: 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+      }
+
+      .foot__links a {
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .foot__links a:hover {
+        text-decoration: underline;
+      }
+
+      .foot p {
+        margin: 0 0 8px;
+        max-width: 60ch;
+      }
+
+      /* --------------------------------------------------------- mobile */
+
+      @media (max-width: 560px) {
+        :root {
+          --gap: 40px;
+        }
+        body {
+          font-size: 16px;
+        }
+        .hero {
+          padding: 44px 20px 40px;
+        }
+        .route {
+          padding-left: 20px;
+          padding-right: 20px;
+        }
+        .stop h2 {
+          font-size: 22px;
+        }
+        .btn {
+          width: 100%;
+          justify-content: center;
+        }
+        .code code {
+          font-size: 12px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        .stop::after {
+          animation: none;
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <a class="skip" href="#start">Skip to content</a>
+
+    <header class="topbar">
+      <div class="topbar__in">
+        <a class="wordmark" href="#top">
+          <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+            <circle cx="16" cy="14" r="9" fill="none" stroke="#DC241F" stroke-width="4" />
+            <rect x="3" y="12" width="26" height="4" rx="1" fill="#fff" />
+            <path d="M4 26c4-5 8-5 12 0s8 5 12 0" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" />
+          </svg>
+          RouteWave
+        </a>
+        <a class="topbar__link" href="https://github.com/wushu75/RouteWave">View source</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <span class="tag">In testing — not yet on the Chrome Web Store</span>
+        <h1>London journeys, from <b>wherever you already are</b>.</h1>
+        <p>
+          A free Chrome extension. Find an address on a page, get a clear route across London —
+          fastest, least walking, or step-free — with live arrivals and a word of warning when it
+          is about to rain on your walk.
+        </p>
+        <div class="actions">
+          <a class="btn btn--go" href="#install">Install it</a>
+          <a class="btn" href="privacy.html">What it does with your data</a>
+        </div>
+      </section>
+
+      <div class="route" id="start">
+        <!-- ----------------------------------------------------- what -->
+        <section class="stop" style="--marker: var(--victoria)">
+          <span class="eyebrow">What it does</span>
+          <h2>Six things, done plainly</h2>
+          <ul class="list">
+            <li style="--dot: var(--victoria)">
+              <strong>Reads the page you are on.</strong>
+              <span>Postcodes, stations, street addresses and landmarks become one-click destinations — only when you ask it to look.</span>
+            </li>
+            <li style="--dot: var(--elizabeth)">
+              <strong>Three ways to travel.</strong>
+              <span>Fastest, least walking, or fewest changes. Switch between them and the results reload straight away.</span>
+            </li>
+            <li style="--dot: var(--district)">
+              <strong>Step-free, up front.</strong>
+              <span>A single tick, not a setting buried three menus deep. Street to platform, platform to train.</span>
+            </li>
+            <li style="--dot: var(--central)">
+              <strong>Live arrivals and disruptions.</strong>
+              <span>Straight from the TfL Unified API. The same numbers as the boards on the platform.</span>
+            </li>
+            <li style="--dot: var(--victoria)">
+              <strong>Weather that knows your route.</strong>
+              <span>Ten minutes of walking and rain due? It says so, and points you at a route with less of it.</span>
+            </li>
+            <li style="--dot: var(--elizabeth)">
+              <strong>Share the whole journey.</strong>
+              <span>Copy a readable summary or a link that reopens the route. Useful when someone is meeting you there.</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- -------------------------------------------------- install -->
+        <section class="stop" id="install" style="--marker: var(--elizabeth)">
+          <span class="eyebrow">Install</span>
+          <h2>Four steps, about a minute</h2>
+          <p>
+            While it is in testing you load it yourself. Nothing to compile, nothing to install
+            first — Chrome 116 or later is all you need.
+          </p>
+
+          <div class="code">
+            <code id="clone">git clone https://github.com/wushu75/RouteWave.git</code>
+            <button class="copy" id="copy" type="button">Copy</button>
+          </div>
+
+          <ol class="steps">
+            <li>Open <b>chrome://extensions</b> in a new tab.</li>
+            <li>Turn on <b>Developer mode</b>, top right.</li>
+            <li>Press <b>Load unpacked</b> and choose the folder you just cloned — the one with <b>manifest.json</b> inside.</li>
+            <li>Pin it from the extensions menu, then press <kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>R</kbd>.</li>
+          </ol>
+
+          <p style="margin-bottom: 0">
+            Prefer to download a zip? Use <b>Code → Download ZIP</b> on GitHub, unzip it, and start
+            at step one.
+          </p>
+        </section>
+
+        <!-- -------------------------------------------------- privacy -->
+        <section class="stop" style="--marker: var(--district)">
+          <span class="eyebrow">Privacy</span>
+          <h2>What it never does</h2>
+          <p>
+            Most travel tools want an account first. This one has no account to make, because it
+            has no server to make it on.
+          </p>
+          <div class="promise">
+            <dl>
+              <dt>No accounts, no analytics, no tracking</dt>
+              <dd>Not a single third-party request. This page has none either.</dd>
+
+              <dt>Your places stay on your machine</dt>
+              <dd>Favourites, recent searches and settings live in your browser profile. Download or erase them whenever you like.</dd>
+
+              <dt>Two requests leave, and you can see both</dt>
+              <dd>Your search goes to Transport for London. A coordinate rounded to about a kilometre goes to Open-Meteo for the weather, and switching weather off stops even that.</dd>
+
+              <dt>It reads a page only when you ask</dt>
+              <dd>No background script on any site. What it finds stays in the popup and goes nowhere.</dd>
+            </dl>
+          </div>
+          <p style="margin: 18px 0 0">
+            <a href="privacy.html">Read the full policy</a> — it is short, and the source code backs
+            up every line of it.
+          </p>
+        </section>
+
+        <!-- ---------------------------------------------------- source -->
+        <section class="stop stop--end">
+          <span class="eyebrow">Open source</span>
+          <h2>Have a look inside</h2>
+          <p>
+            MIT licensed, no dependencies, no bundler — what you read in the repository is exactly
+            what your browser runs. Bug reports, accessibility problems and pull requests are all
+            welcome.
+          </p>
+          <div class="actions">
+            <a class="btn btn--go" href="https://github.com/wushu75/RouteWave">Get it on GitHub</a>
+            <a class="btn" href="https://github.com/wushu75/RouteWave/issues/new/choose">Report a problem</a>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <div class="foot__in">
+        <div class="foot__links">
+          <a href="https://github.com/wushu75/RouteWave">Source code</a>
+          <a href="privacy.html">Privacy policy</a>
+          <a href="https://github.com/wushu75/RouteWave/issues/new/choose">Issues</a>
+          <a href="https://api-portal.tfl.gov.uk/">TfL API</a>
+        </div>
+        <p>
+          Powered by TfL Open Data. Contains OS data © Crown copyright and database rights.
+          Weather by <a href="https://open-meteo.com/">Open-Meteo</a>.
+        </p>
+        <p>
+          RouteWave is an independent open-source project. It is not affiliated with, endorsed by,
+          or operated by Transport for London.
+        </p>
+      </div>
+    </footer>
+
+    <script>
+      // The one piece of behaviour on this page: copy the clone command.
+      const copyBtn = document.getElementById('copy');
+      copyBtn.addEventListener('click', async () => {
+        const text = document.getElementById('clone').textContent.trim();
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.textContent = 'Copied';
+        } catch {
+          copyBtn.textContent = 'Select and copy';
+        }
+        setTimeout(() => {
+          copyBtn.textContent = 'Copy';
+        }, 1800);
+      });
+    </script>
+  </body>
+</html>
